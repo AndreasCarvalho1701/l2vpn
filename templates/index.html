@@ -6,12 +6,19 @@
 </head>
 <body style="background-color: black; color: green;">
     <h1>Configurar L2VPN</h1>
+    
     <form action="/configure-l2vpn" method="post">
         <fieldset>
             <legend>Configuração do PE1</legend>
-
-            <label for="HOSTA">HOST A</label>
-            <input type="text" id="HOSTA" name="HOSTA" required><br><br>
+            
+            <!-- Dropdown para selecionar a cidade do Host A -->
+            <label for="cidade_pe1">Cidade Host 1:</label>
+            <select id="cidade_pe1" name="cidade_pe1" required>
+                <!-- As opções serão carregadas dinamicamente -->
+                {% for cidade in cidades %}
+                    <option value="{{ cidade['nome'] }}">{{ cidade['nome'] }}</option>
+                {% endfor %}
+            </select><br><br>
 
             <label for="vpws_group_name_pe1">VPWS Group Name PE1:</label>
             <input type="text" id="vpws_group_name_pe1" name="vpws_group_name_pe1" required><br><br>
@@ -40,9 +47,15 @@
 
         <fieldset>
             <legend>Configuração do PE2</legend>
-
-            <label for="HOSTB">HOST B</label>
-            <input type="text" id="HOSTB" name="HOSTB" required><br><br>
+            
+            <!-- Dropdown para selecionar a cidade do Host B -->
+            <label for="cidade_pe2">Cidade Host 2:</label>
+            <select id="cidade_pe2" name="cidade_pe2" required>
+                <!-- As opções serão carregadas dinamicamente -->
+                {% for cidade in cidades %}
+                    <option value="{{ cidade['nome'] }}">{{ cidade['nome'] }}</option>
+                {% endfor %}
+            </select><br><br>
 
             <label for="vpws_group_name_pe2">VPWS Group Name PE2:</label>
             <input type="text" id="vpws_group_name_pe2" name="vpws_group_name_pe2" required><br><br>
@@ -68,13 +81,19 @@
             <label for="neighbor_targeted_ip_pe2">Neighbor Targeted IP do PE2:</label>
             <input type="text" id="neighbor_targeted_ip_pe2" name="neighbor_targeted_ip_pe2" required><br><br>
         </fieldset>
+
         <fieldset>
-            <label for='login'>login</label>
-            <input type="text" id ='login' name="login" required><br><br>
-            <label for='senha'>senha</label>
-            <input type="text" id ='senha' name="senha" required>
+            <legend>Login</legend>
+            <label for='login'>Login:</label>
+            <input type="text" id='login' name="login" required><br><br>
+            <label for='senha'>Senha:</label>
+            <input type="password" id='senha' name="senha" required>
         </fieldset>
+
         <button type="submit">Configurar</button>
     </form>
+
+    <br>
+    <a href="/manage-cities">Gerenciar Cidades</a>
 </body>
 </html>
