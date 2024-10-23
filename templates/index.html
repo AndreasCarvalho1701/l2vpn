@@ -1,105 +1,80 @@
-from flask import Flask, render_template, request, jsonify
-import paramiko
-import time
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Configurar L2VPN</title>
+</head>
+<body style="background-color: black; color: green;">
+    <h1>Configurar L2VPN</h1>
+    <form action="/configure-l2vpn" method="post">
+        <fieldset>
+            <legend>Configuração do PE1</legend>
 
-def execute_ssh(ip_address, commands):
-    try:
-        # Captura o login e a senha diretamente do formulário
-        username = request.form.get('login')
-        password = request.form.get('senha')
+            <label for="HOSTA">HOST A</label>
+            <input type="text" id="HOSTA" name="HOSTA" required><br><br>
 
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        
-        # Conecta ao dispositivo usando o login e a senha capturados
-        ssh.connect(ip_address, username=username, password=password)
-        
-        remote_conn = ssh.invoke_shell()
-        output = ""
-        
-        # Envia os comandos linha por linha
-        for command in commands.strip().split('\n'):
-            remote_conn.send(command.strip() + '\n')
-            time.sleep(1)
-            while remote_conn.recv_ready():
-                output += remote_conn.recv(4096).decode('utf-8')
-        
-        ssh.close()
-        
-        return {"output": output}
-        
-    except Exception as e:
-        return {"error": str(e)}
+            <label for="vpws_group_name_pe1">VPWS Group Name PE1:</label>
+            <input type="text" id="vpws_group_name_pe1" name="vpws_group_name_pe1" required><br><br>
 
-app = Flask(__name__)
+            <label for="vpn_id_pe1">VPN ID PE1:</label>
+            <input type="text" id="vpn_id_pe1" name="vpn_id_pe1" required><br><br>
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+            <label for="neighbor_ip_pe1">Neighbor IP do PE1:</label>
+            <input type="text" id="neighbor_ip_pe1" name="neighbor_ip_pe1" required><br><br>
 
-@app.route('/configure-l2vpn', methods=['POST'])
-def configure_l2vpn():
+            <label for="pw_vlan_pe1">PW-Type VLAN PE1:</label>
+            <input type="text" id="pw_vlan_pe1" name="pw_vlan_pe1" required><br><br>
 
-    vpws_group_name_pe1 = request.form.get('vpws_group_name_pe1')
-    vpn_id_pe1 = request.form.get('vpn_id_pe1')
-    neighbor_ip_pe1 = request.form.get('neighbor_ip_pe1')
-    pw_vlan_pe1 = request.form.get('pw_vlan_pe1')
-    pw_id_pe1 = request.form.get('pw_id_pe1')
-    access_interface_pe1 = request.form.get('access_interface_pe1')
-    dot1q_pe1 = request.form.get('dot1q_pe1')
-    neighbor_targeted_ip_pe1 = request.form.get('neighbor_targeted_ip_pe1')
+            <label for="pw_id_pe1">PW ID PE1:</label>
+            <input type="text" id="pw_id_pe1" name="pw_id_pe1" required><br><br>
 
-    # Variáveis PE2
+            <label for="access_interface_pe1">Access Interface do PE1:</label>
+            <input type="text" id="access_interface_pe1" name="access_interface_pe1" required><br><br>
 
-    vpws_group_name_pe2 = request.form.get('vpws_group_name_pe2')
-    vpn_id_pe2 = request.form.get('vpn_id_pe2')
-    neighbor_ip_pe2 = request.form.get('neighbor_ip_pe2')
-    pw_vlan_pe2 = request.form.get('pw_vlan_pe2')
-    pw_id_pe2 = request.form.get('pw_id_pe2')
-    access_interface_pe2 = request.form.get('access_interface_pe2')
-    dot1q_pe2 = request.form.get('dot1q_pe2')
-    neighbor_targeted_ip_pe2 = request.form.get('neighbor_targeted_ip_pe2')
+            <label for="dot1q_pe1">Dot1q PE1:</label>
+            <input type="text" id="dot1q_pe1" name="dot1q_pe1" required><br><br>
 
-    # Comandos para PE1
-    pe1_commands = f"""
-config
-mpls l2vpn vpws-group {vpws_group_name_pe1} vpn {vpn_id_pe1} neighbor {neighbor_ip_pe1}
-pw-type vlan {pw_vlan_pe1}
-pw-load-balance flow-label both
-pw-id {pw_id_pe1}
-exit
-access-interface {access_interface_pe1}
-dot1q {dot1q_pe1}
-top
-mpls ldp lsr-id loopback-0 neighbor targeted {neighbor_targeted_ip_pe1}
-top
-commit
-"""
+            <label for="neighbor_targeted_ip_pe1">Neighbor Targeted IP do PE1:</label>
+            <input type="text" id="neighbor_targeted_ip_pe1" name="neighbor_targeted_ip_pe1" required><br><br>
+        </fieldset>
 
-    # Comandos para PE2
-    pe2_commands = f"""
-config
-mpls l2vpn vpws-group {vpws_group_name_pe2} vpn {vpn_id_pe2} neighbor {neighbor_ip_pe2}
-pw-type vlan {pw_vlan_pe2}
-pw-load-balance flow-label both
-pw-id {pw_id_pe2}
-exit
-access-interface {access_interface_pe2}
-dot1q {dot1q_pe2}
-top
-mpls ldp lsr-id loopback-0 neighbor targeted {neighbor_targeted_ip_pe2}
-top
-commit
-"""
+        <fieldset>
+            <legend>Configuração do PE2</legend>
 
-    # Executar os comandos via SSH
-    response_pe1 = execute_ssh('177.66.5.82', pe1_commands)
-    response_pe2 = execute_ssh('177.66.5.84', pe2_commands)
+            <label for="HOSTB">HOST B</label>
+            <input type="text" id="HOSTB" name="HOSTB" required><br><br>
 
-    return jsonify({
-        "PE1_response": response_pe1,
-        "PE2_response": response_pe2
-    })
+            <label for="vpws_group_name_pe2">VPWS Group Name PE2:</label>
+            <input type="text" id="vpws_group_name_pe2" name="vpws_group_name_pe2" required><br><br>
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+            <label for="vpn_id_pe2">VPN ID PE2:</label>
+            <input type="text" id="vpn_id_pe2" name="vpn_id_pe2" required><br><br>
+
+            <label for="neighbor_ip_pe2">Neighbor IP do PE2:</label>
+            <input type="text" id="neighbor_ip_pe2" name="neighbor_ip_pe2" required><br><br>
+
+            <label for="pw_vlan_pe2">PW-Type VLAN PE2:</label>
+            <input type="text" id="pw_vlan_pe2" name="pw_vlan_pe2" required><br><br>
+
+            <label for="pw_id_pe2">PW ID PE2:</label>
+            <input type="text" id="pw_id_pe2" name="pw_id_pe2" required><br><br>
+
+            <label for="access_interface_pe2">Access Interface do PE2:</label>
+            <input type="text" id="access_interface_pe2" name="access_interface_pe2" required><br><br>
+
+            <label for="dot1q_pe2">Dot1q PE2:</label>
+            <input type="text" id="dot1q_pe2" name="dot1q_pe2" required><br><br>
+
+            <label for="neighbor_targeted_ip_pe2">Neighbor Targeted IP do PE2:</label>
+            <input type="text" id="neighbor_targeted_ip_pe2" name="neighbor_targeted_ip_pe2" required><br><br>
+        </fieldset>
+        <fieldset>
+            <label for='login'>login</label>
+            <input type="text" id ='login' name="login" required><br><br>
+            <label for='senha'>senha</label>
+            <input type="text" id ='senha' name="senha" required>
+        </fieldset>
+        <button type="submit">Configurar</button>
+    </form>
+</body>
+</html>
