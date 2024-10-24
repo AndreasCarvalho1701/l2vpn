@@ -22,11 +22,14 @@ def index():
     conn.close()
     return render_template('index.html', cidades=cidades)
 
-@app.route('/configure-l2vpn', methods=['POST'])
-async def configure_l2vpn():
-    # Start measuring execution time
-    start_time = time.time()
+# Adicione a importação
+from concurrent.futures import ThreadPoolExecutor
 
+@app.route('/configure-l2vpn', methods=['POST'])
+def configure_l2vpn():
+    # Início da medição de tempo
+    start_time = time.time()
+    
     cidade_pe1 = request.form.get('cidade_pe1')
     cidade_pe2 = request.form.get('cidade_pe2')
 
@@ -103,29 +106,37 @@ commit
 
     responses = {}
 
-    # Create asynchronous tasks to configure devices
-    tasks = [
-        configure_device(ip_pe1, pe1_commands, username, password, responses, 'PE1_response', connection_pool),
-        configure_device(ip_pe2, pe2_commands, username, password, responses, 'PE2_response', connection_pool),
-    ]
+    # Defina uma função wrapper para coletar as respostas
+    def configure_device_wrapper(*args):
+        key = args[4]
+        response = configure_device(*args)
+        responses[key] = response
 
-    # Execute the asynchronous tasks
-    await asyncio.gather(*tasks)
+    # Crie um ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        # Envie as tarefas para o executor
+        future1 = executor.submit(configure_device_wrapper, ip_pe1, pe1_commands, username, password, 'PE1_response', connection_pool)
+        future2 = executor.submit(configure_device_wrapper, ip_pe2, pe2_commands, username, password, 'PE2_response', connection_pool)
 
-    # Calculate execution time
+        # Aguarde a conclusão das tarefas
+        future1.result()
+        future2.result()
+
+    # Calcule o tempo de execução
     end_time = time.time()
     execution_time = end_time - start_time
 
     response_data = {
         'PE1_response': responses.get('PE1_response', {}),
         'PE2_response': responses.get('PE2_response', {}),
-        'execution_time_seconds': round(execution_time, 1)  # Rounded execution time in seconds
+        'execution_time_seconds': round(execution_time, 1)
     }
 
     return Response(
         json.dumps(response_data, indent=2),
         mimetype='application/json'
     )
+
 
 # Page to add new cities
 @app.route('/manage-cities')
