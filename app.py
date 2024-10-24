@@ -1,8 +1,7 @@
 import sqlite3
 from flask import Flask, render_template, request, jsonify, Response, redirect, url_for
-
-import paramiko
-import time
+import asyncio
+import asyncssh
 import json
 import re
 
@@ -32,54 +31,68 @@ initialize_db()
 
 # Função para limpar a saída de dados SSH
 def clean_output(output):
+    """
+    Remove caracteres de escape ANSI e formata a saída.
+
+    Args:
+        output (str): Saída bruta dos comandos SSH.
+
+    Retorna:
+        str: Saída limpa e formatada.
+    """
     ansi_escape = re.compile(r'(?:\x1B[@-_][0-?]*[ -/]*[@-~])')
     output = ansi_escape.sub('', output)
     output = output.replace('\r\n', '\n').replace('\r', '\n')
     output = re.sub(r'\n+', '\n', output)
     return output.strip()
 
-# Função para executar comandos SSH
-def execute_ssh(ip_address, commands):
+# Classe para gerenciar conexões SSH persistentes de forma assíncrona
+class SSHConnectionPool:
+    def __init__(self):
+        self.connections = {}
+        self.lock = asyncio.Lock()
+
+    async def get_connection(self, ip_address, username, password):
+        async with self.lock:
+            if ip_address in self.connections:
+                return self.connections[ip_address]
+            else:
+                conn = await asyncssh.connect(ip_address, username=username, password=password, known_hosts=None)
+                self.connections[ip_address] = conn
+                return conn
+
+    async def close_all(self):
+        async with self.lock:
+            for conn in self.connections.values():
+                conn.close()
+            self.connections.clear()
+
+# Remover a instância global do pool de conexões
+# connection_pool = SSHConnectionPool()
+
+# Função assíncrona para executar comandos SSH
+async def execute_ssh(ip_address, commands, username, password, connection_pool):
     try:
-        username = request.form.get('login')
-        password = request.form.get('senha')
-
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh.connect(ip_address, username=username, password=password)
-
-        remote_conn = ssh.invoke_shell()
-        output = ""
-
-        for command in commands.strip().split('\n'):
-            remote_conn.send(command.strip() + '\n')
-            time.sleep(0.125)
-            while remote_conn.recv_ready():
-                output += remote_conn.recv(4096).decode('utf-8')
-
-        verification_command = "show configuration commit changes\n"
-        remote_conn.send(verification_command)
-        time.sleep(0.25)
-
-        verification_output = ""
-        while remote_conn.recv_ready():
-            verification_output += remote_conn.recv(4096).decode('utf-8')
-
-        ssh.close()
-
+        conn = await connection_pool.get_connection(ip_address, username, password)
+        # Processar os comandos
+        commands_list = [cmd.strip() for cmd in commands.strip().split('\n') if cmd.strip()]
+        commands_combined = '\n'.join(commands_list)
+        result = await conn.run(commands_combined, check=False)
+        # Capturar stdout e stderr
+        output = result.stdout + result.stderr
         output = clean_output(output)
-        verification_output = clean_output(verification_output)
-
         output_lines = output.split('\n')
-        verification_output_lines = verification_output.split('\n')
-
         return {
-            "config_output": output_lines,
-            "verification_output": verification_output_lines
+            "commands_sent": commands_list,
+            "config_output": output_lines
         }
-
     except Exception as e:
         return {"error": str(e)}
+
+# Função assíncrona para configurar um dispositivo
+async def configure_device(ip, commands, username, password, responses, key, connection_pool):
+    response = await execute_ssh(ip, commands, username, password, connection_pool)
+    responses[key] = response
 
 @app.route('/')
 def index():
@@ -90,14 +103,37 @@ def index():
 
 @app.route('/configure-l2vpn', methods=['POST'])
 def configure_l2vpn():
+    # Obter o loop de eventos atual
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    # Instanciar o pool de conexões dentro do loop de eventos
+    connection_pool = SSHConnectionPool()
+
     cidade_pe1 = request.form.get('cidade_pe1')
     cidade_pe2 = request.form.get('cidade_pe2')
 
+    # Verificar se as cidades são diferentes
+    if cidade_pe1 == cidade_pe2:
+        return jsonify({"error": "As cidades PE1 e PE2 devem ser diferentes"}), 400
+
     conn = get_db_connection()
-    ip_pe1 = conn.execute('SELECT ip FROM cidades WHERE nome = ?', (cidade_pe1,)).fetchone()['ip']
-    ip_pe2 = conn.execute('SELECT ip FROM cidades WHERE nome = ?', (cidade_pe2,)).fetchone()['ip']
+    ip_pe1_row = conn.execute('SELECT ip FROM cidades WHERE nome = ?', (cidade_pe1,)).fetchone()
+    ip_pe2_row = conn.execute('SELECT ip FROM cidades WHERE nome = ?', (cidade_pe2,)).fetchone()
     conn.close()
 
+    if not ip_pe1_row or not ip_pe2_row:
+        return jsonify({"error": "Cidades não encontradas no banco de dados"}), 400
+
+    # Atribuir corretamente os endereços IP
+    ip_pe1 = ip_pe1_row['ip']
+    ip_pe2 = ip_pe2_row['ip']
+
+    # Debug: Verificar os endereços IP
+    print(f"ip_pe1: {ip_pe1}")
+    print(f"ip_pe2: {ip_pe2}")
+
+    # Obter os parâmetros do formulário
     vpws_group_name_pe1 = request.form.get('vpws_group_name_pe1')
     vpn_id_pe1 = request.form.get('vpn_id_pe1')
     neighbor_ip_pe1 = request.form.get('neighbor_ip_pe1')
@@ -116,6 +152,11 @@ def configure_l2vpn():
     dot1q_pe2 = request.form.get('dot1q_pe2')
     neighbor_targeted_ip_pe2 = request.form.get('neighbor_targeted_ip_pe2')
 
+    # Obter credenciais de login
+    username = request.form.get('login')
+    password = request.form.get('senha')
+
+    # Construir os comandos para cada PE
     pe1_commands = f"""
 config
 mpls l2vpn vpws-group {vpws_group_name_pe1} vpn {vpn_id_pe1} neighbor {neighbor_ip_pe1}
@@ -146,18 +187,21 @@ top
 commit
 """
 
-    response_pe1 = execute_ssh(ip_pe1, pe1_commands)
-    response_pe2 = execute_ssh(ip_pe2, pe2_commands)
+    responses = {}
+
+    # Criar tarefas assíncronas para configurar os dispositivos
+    tasks = [
+        configure_device(ip_pe1, pe1_commands, username, password, responses, 'PE1_response', connection_pool),
+        configure_device(ip_pe2, pe2_commands, username, password, responses, 'PE2_response', connection_pool),
+    ]
+
+    # Executar as tarefas assíncronas
+    loop.run_until_complete(asyncio.gather(*tasks))
+    loop.run_until_complete(connection_pool.close_all())
 
     response_data = {
-        "PE1_response": {
-            "config_output": response_pe1.get("config_output", []),
-            "verification_output": response_pe1.get("verification_output", [])
-        },
-        "PE2_response": {
-            "config_output": response_pe2.get("config_output", []),
-            "verification_output": response_pe2.get("verification_output", [])
-        }
+        'PE1_response': responses.get('PE1_response', {}),
+        'PE2_response': responses.get('PE2_response', {})
     }
 
     return Response(
@@ -205,4 +249,4 @@ def add_city():
     return redirect(url_for('manage_cities'))
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000)
