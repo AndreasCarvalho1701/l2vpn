@@ -1,7 +1,9 @@
 import asyncio
 import json
 import time
+import subprocess
 from flask import Flask, render_template, request, jsonify, Response, redirect, url_for
+from concurrent.futures import ThreadPoolExecutor
 
 from db import get_db_connection, initialize_db
 from ssh_pool import SSHConnectionPool
@@ -15,40 +17,56 @@ initialize_db()
 # Instantiate the global SSH connection pool
 connection_pool = SSHConnectionPool()
 
-@app.route('/')
-def index():
+# Função para pegar o IP da cidade do banco de dados
+def get_city_ip(cidade_nome):
     conn = get_db_connection()
-    cidades = conn.execute('SELECT nome FROM cidades').fetchall()
+    ip_row = conn.execute('SELECT ip FROM cidades WHERE nome = ?', (cidade_nome,)).fetchone()
     conn.close()
-    return render_template('index.html', cidades=cidades)
+    if ip_row:
+        return ip_row['ip']
+    return None
 
-# Adicione a importação
-from concurrent.futures import ThreadPoolExecutor
+# Função para realizar o ping e medir latência
+def ping_device(ip_address):
+    try:
+        # Executa o ping com 4 pacotes para calcular média
+        result = subprocess.run(['ping', '-c', '4', ip_address], capture_output=True, text=True)
+        if result.returncode == 0:
+            # Filtra a linha de estatísticas do ping
+            output_lines = result.stdout.split('\n')
+            stats_line = next(line for line in output_lines if 'min/avg/max' in line)
+            # Extrai a média de latência
+            avg_latency = stats_line.split('=')[-1].split('/')[1].strip()
+            return {"ip": ip_address, "avg_latency_ms": avg_latency}
+        else:
+            return {"ip": ip_address, "error": "Ping failed"}
+    except Exception as e:
+        return {"ip": ip_address, "error": str(e)}
 
 @app.route('/configure-l2vpn', methods=['POST'])
 def configure_l2vpn():
     # Início da medição de tempo
     start_time = time.time()
-    
+
     cidade_pe1 = request.form.get('cidade_pe1')
     cidade_pe2 = request.form.get('cidade_pe2')
 
-    # Ensure the cities are different
+    # Garantir que as cidades são diferentes
     if cidade_pe1 == cidade_pe2:
         return jsonify({"error": "As cidades PE1 e PE2 devem ser diferentes"}), 400
 
-    conn = get_db_connection()
-    ip_pe1_row = conn.execute('SELECT ip FROM cidades WHERE nome = ?', (cidade_pe1,)).fetchone()
-    ip_pe2_row = conn.execute('SELECT ip FROM cidades WHERE nome = ?', (cidade_pe2,)).fetchone()
-    conn.close()
+    # Pega os IPs das cidades do banco de dados
+    ip_pe1 = get_city_ip(cidade_pe1)
+    ip_pe2 = get_city_ip(cidade_pe2)
 
-    if not ip_pe1_row or not ip_pe2_row:
-        return jsonify({"error": "Cidades não encontradas no banco de dados"}), 400
+    if not ip_pe1 or not ip_pe2:
+        return jsonify({"error": "Uma ou ambas as cidades não foram encontradas no banco de dados"}), 400
 
-    ip_pe1 = ip_pe1_row['ip']
-    ip_pe2 = ip_pe2_row['ip']
+    # Realiza o ping em ambos os dispositivos antes de configurar
+    pe1_ping_result = ping_device(ip_pe1)
+    pe2_ping_result = ping_device(ip_pe2)
 
-    # Retrieve form parameters for PE1
+    # Recupera os parâmetros do formulário para PE1 e PE2 (mesmo código que você já tinha)
     vpws_group_name_pe1 = request.form.get('vpws_group_name_pe1')
     vpn_id_pe1 = request.form.get('vpn_id_pe1')
     neighbor_ip_pe1 = request.form.get('neighbor_ip_pe1')
@@ -58,7 +76,6 @@ def configure_l2vpn():
     dot1q_pe1 = request.form.get('dot1q_pe1')
     neighbor_targeted_ip_pe1 = request.form.get('neighbor_targeted_ip_pe1')
 
-    # Retrieve form parameters for PE2
     vpws_group_name_pe2 = request.form.get('vpws_group_name_pe2')
     vpn_id_pe2 = request.form.get('vpn_id_pe2')
     neighbor_ip_pe2 = request.form.get('neighbor_ip_pe2')
@@ -68,11 +85,11 @@ def configure_l2vpn():
     dot1q_pe2 = request.form.get('dot1q_pe2')
     neighbor_targeted_ip_pe2 = request.form.get('neighbor_targeted_ip_pe2')
 
-    # Get login credentials
+    # Credenciais de login
     username = request.form.get('login')
     password = request.form.get('senha')
 
-    # Build commands for PE1
+    # Comandos de configuração para PE1
     pe1_commands = f"""
 config
 mpls l2vpn vpws-group {vpws_group_name_pe1} vpn {vpn_id_pe1} neighbor {neighbor_ip_pe1}
@@ -88,7 +105,7 @@ top
 commit
 """
 
-    # Build commands for PE2
+    # Comandos de configuração para PE2
     pe2_commands = f"""
 config
 mpls l2vpn vpws-group {vpws_group_name_pe2} vpn {vpn_id_pe2} neighbor {neighbor_ip_pe2}
@@ -106,19 +123,13 @@ commit
 
     responses = {}
 
-    # Defina uma função wrapper para coletar as respostas
-    def configure_device_wrapper(*args):
-        key = args[4]
-        response = configure_device(*args)
+    def configure_device_wrapper(ip, commands, username, password, key):
+        response = configure_device(ip, commands, username, password, key, connection_pool)
         responses[key] = response
 
-    # Crie um ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=2) as executor:
-        # Envie as tarefas para o executor
-        future1 = executor.submit(configure_device_wrapper, ip_pe1, pe1_commands, username, password, 'PE1_response', connection_pool)
-        future2 = executor.submit(configure_device_wrapper, ip_pe2, pe2_commands, username, password, 'PE2_response', connection_pool)
-
-        # Aguarde a conclusão das tarefas
+        future1 = executor.submit(configure_device_wrapper, ip_pe1, pe1_commands, username, password, 'PE1_response')
+        future2 = executor.submit(configure_device_wrapper, ip_pe2, pe2_commands, username, password, 'PE2_response')
         future1.result()
         future2.result()
 
@@ -126,9 +137,12 @@ commit
     end_time = time.time()
     execution_time = end_time - start_time
 
+    # Monta o JSON final com os resultados do ping e das configurações
     response_data = {
         'PE1_response': responses.get('PE1_response', {}),
         'PE2_response': responses.get('PE2_response', {}),
+        'PE1_ping': pe1_ping_result,
+        'PE2_ping': pe2_ping_result,
         'execution_time_seconds': round(execution_time, 1)
     }
 
@@ -137,27 +151,6 @@ commit
         mimetype='application/json'
     )
 
-
-# Page to add new cities
-@app.route('/manage-cities')
-def manage_cities():
-    return render_template('manage_cities.html')
-
-# Route to add a new city to the database
-@app.route('/add-city', methods=['POST'])
-def add_city():
-    cidade_nome = request.form.get('cidade_nome')
-    cidade_ip = request.form.get('cidade_ip')
-
-    if cidade_nome and cidade_ip:
-        conn = get_db_connection()
-        conn.execute('INSERT INTO cidades (nome, ip) VALUES (?, ?)', (cidade_nome, cidade_ip))
-        conn.commit()
-        conn.close()
-
-    return redirect(url_for('manage_cities'))
-
 if __name__ == '__main__':
-    # Run the application using uvicorn for async support
-    import uvicorn
-    uvicorn.run(app, host='0.0.0.0', port=5000)
+    # Execute a aplicação Flask
+    app.run(host='0.0.0.0', port=5000)
