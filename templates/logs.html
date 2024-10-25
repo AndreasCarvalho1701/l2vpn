@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Logs de Alterações</title>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid #dddddd;
+            text-align: left;
+            padding: 8px;
+        }
+        th {
+            background-color: #333;
+            color: green;
+        }
+    </style>
+</head>
+<body style="background-color: black; color: green;">
+    <h1>Logs de Alterações</h1>
+
+    <!-- Formulário de Filtro -->
+    <form action="/logs" method="get">
+        <label for="start_date">Data e Hora Início:</label>
+        <input type="datetime-local" id="start_date" name="start_date">
+        
+        <label for="end_date">Data e Hora Fim:</label>
+        <input type="datetime-local" id="end_date" name="end_date"><br><br>
+
+        <!-- Dropdown para selecionar a cidade -->
+        <label for="cidade_alterada">Cidade:</label>
+        <select id="cidade_alterada" name="cidade_alterada">
+            <option value="">Todas</option>
+            {% for cidade in cidades %}
+                <option value="{{ cidade['nome'] }}">{{ cidade['nome'] }}</option>
+            {% endfor %}
+        </select><br><br>
+
+        <label for="descricao_operacao">Descrição da Operação:</label>
+        <input type="text" id="descricao_operacao" name="descricao_operacao"><br><br>
+        
+        <button type="submit">Filtrar</button>
+    </form>
+
+    <table>
+        <tr>
+            <th>ID</th>
+            <th>Nome do Usuário</th>
+            <th>Descrição da Operação</th>
+            <th>Cidade</th>
+            <th>Data e Hora da Operação</th>
+        </tr>
+        {% for log in logs %}
+            <tr>
+                <td>{{ log['id'] }}</td>
+                <td>{{ log['usuario_nome'] if log['usuario_nome'] else 'Desconhecido' }}</td>
+                <td>{{ log['descricao_operacao'] if log['descricao_operacao'] else 'N/A' }}</td>
+                <td>{{ log['cidade_alterada'] if log['cidade_alterada'] else 'N/A' }}</td>
+                <td>{{ log['data_operacao'] if log['data_operacao'] else 'N/A' }}</td>
+            </tr>
+        {% endfor %}
+    </table>
+
+    <br>
+    <a href="/configure-l2vpn">Voltar para Configuração L2VPN</a>
+</body>
+</html>

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Gerenciar Cidades</title>
+    <style>
+        /* Estilo para a mensagem flash */
+        .flash-message {
+            background-color: #444; /* Cor de fundo para contraste */
+            color: red; /* Cor do texto */
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+        }
+        ul {
+            list-style-type: none; /* Remove marcadores da lista */
+            padding: 0;
+        }
+        li {
+            background-color: #222;
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
+    <script>
+        // Função para esconder a mensagem flash após 5 segundos
+        window.onload = function() {
+            setTimeout(function() {
+                var flashMessage = document.getElementById('flash-message');
+                if (flashMessage) {
+                    flashMessage.style.display = 'none';
+                }
+            }, 5000); // 5000 milissegundos = 5 segundos
+        };
+    </script>
+</head>
+<body style="background-color: black; color: green;">
+    <h1>Gerenciar Cidades</h1>
+    
+    <!-- Exibe mensagens flash temporariamente -->
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            <div id="flash-message" class="flash-message">
+                <ul>
+                    {% for message in messages %}
+                        <li>{{ message }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    <!-- Formulário para adicionar uma nova cidade -->
+    <form action="/add-city" method="post">
+        <label for="nome_cidade">Nome da Cidade:</label>
+        <input type="text" id="nome_cidade" name="nome_cidade" required><br><br>
+
+        <label for="ip_cidade">Endereço IP da Cidade:</label>
+        <input type="text" id="ip_cidade" name="ip_cidade" required><br><br>
+
+        <button type="submit">Adicionar Cidade</button>
+    </form>
+
+    <!-- Lista de cidades existentes com opções de editar ou deletar -->
+    <h2>Cidades Existentes</h2>
+    <ul>
+        {% for cidade in cidades %}
+            <li>
+                {{ cidade['nome'] }} - IP: {{ cidade['ip'] }}
+                <!-- Botão para editar cidade -->
+                <form action="/edit-city/{{ cidade['id'] }}" method="get" style="display: inline;">
+                    <button type="submit">Editar</button>
+                </form>
+                <!-- Botão para apagar cidade com confirmação -->
+                <form action="/delete-city/{{ cidade['id'] }}" method="post" style="display: inline;">
+                    <button type="submit" onclick="return confirm('Tem certeza que deseja apagar a cidade {{ cidade['nome'] }}?');">Apagar</button>
+                </form>
+            </li>
+        {% endfor %}
+    </ul>
+    
+    <br>
+    <a href="/">Voltar para a Home</a>
+</body>
+</html>

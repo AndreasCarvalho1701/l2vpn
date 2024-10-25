@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Área de Administração</title>
+</head>
+<body style="background-color: black; color: green;">
+    <h1>Área de Administração</h1>
+    
+    <!-- Lista de usuários existentes com opções para editar ou apagar -->
+    <h2>Gerenciar Usuários</h2>
+    <ul>
+        {% for usuario in usuarios %}
+            <li>
+                Nome: {{ usuario['nome'] }} - Tipo: {{ usuario['tipo_usuario'] }}
+                <!-- Adicione botões para editar ou apagar usuários aqui -->
+                <!-- Aqui você pode adicionar links para rotas de edição e exclusão de usuários -->
+            </li>
+        {% endfor %}
+    </ul>
+
+    <br>
+    <a href="/manage-cities">Voltar para Gerenciamento de Cidades</a>
+</body>
+</html>
